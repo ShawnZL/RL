@@ -127,7 +127,7 @@ class ThompsonSampling(Solver):
         r = self.bandit.step(k)
 
         self._a[k] += r
-        self._b[k] -= (1 - r)
+        self._b[k] += (1 - r)
         return k
 
 K = 10
@@ -136,5 +136,9 @@ np.random.seed(1)
 coef = 1  # 控制不确定性比重的系数
 UCB_solver = UCB(bandit_10_arm, coef)
 UCB_solver.run(5000)
+
+thompson_sampling_solver = ThompsonSampling(bandit_10_arm)
+thompson_sampling_solver.run(5000)
 print('上置信界算法的累积懊悔为：', UCB_solver.regret)
-plot_results([UCB_solver], ["UCB"])
+print('汤普森采样算法的累积懊悔为：', thompson_sampling_solver.regret)
+plot_results([UCB_solver, thompson_sampling_solver], ["UCB", "ThompsonSampling"])
