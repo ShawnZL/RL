@@ -31,6 +31,7 @@ class Solver:
 
     def update_regret(self, k):
         # 计算累积懊悔并保存,k为本次动作选择的拉杆的编号
+        # 期望奖励利用动作的选择概率来确定
         self.regret += self.bandit.best_prob - self.bandit.probs[k]
         self.regrets.append(self.regret)
 
@@ -47,6 +48,7 @@ class Solver:
 
 class EpsilonGreedy(Solver):
     def __init__(self, bandit, epsilon=0.01, init_prob=1.0):
+        # super 获取EpsilonGreedy父类，调用父类的init
         super(EpsilonGreedy, self).__init__(bandit)
         self.epsilon = epsilon
 
