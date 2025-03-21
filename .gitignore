@@ -1,4 +1,3 @@
-/Users/shawnzhao/code/RL/.DS_Store
-/Users/shawnzhao/code/RL/MAB/.DS_Store
-/Users/shawnzhao/code/RL/Actor-Critic/.DS_Store
-/Users/shawnzhao/code/RL/Markov/.DS_Store
+.gitignore
+.DS_Store
+.idea/

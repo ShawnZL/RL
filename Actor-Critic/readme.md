@@ -1,3 +1,28 @@
+# AC概念学习
+
+**我们可以把状态价值函数V作为基线，从Q函数减去这个V函数则得到了A函数，我们称之为优势函数（advantage function）**事实上，用Q值或者V值本质上也是用奖励来进行指导，但是用神经网络进行估计的方法可以减小方差、提高鲁棒性。
+
+策略梯度写成一下格式
+$$
+g = \mathbb{E} \left[ \sum_{t=0}^{T} \psi_t \nabla_\theta \log \pi_\theta(a_t | s_t) \right]
+$$
+
+1. \sum_{t'=0}^{T} \gamma^{t'} r_{t'}: 轨迹的总回报；
+
+2. \(\sum_{t'=t}^{T} \gamma^{t'-t} r_{t'}\): 动作 \(a_t\) 之后的回报；
+
+3. \(\sum_{t'=t}^{T} \gamma^{t'-t} r_{t'} - b(s_t)\): 基准线版本的改进；
+
+4. \(Q^{\pi_\theta}(s_t, a_t)\): 动作价值函数；
+
+5. \(A^{\pi_\theta}(s_t, a_t)\): 优势函数；
+
+6. \(r_t + \gamma V^{\pi_\theta}(s_{t+1}) - V^{\pi_\theta}(s_t)\): 时序差分残差。
+
+Actor 要做的是与环境交互，**并在 Critic 价值函数的指导下用策略梯度学习一个更好的策略**
+
+**Critic 要做的是通过 Actor 与环境交互收集的数据学习一个价值函数V**，这个价值函数会用于判断在当前状态什么动作是好的，什么动作不是好的，进而帮助 Actor 进行策略更新。
+
 
 
 # 代码学习
@@ -90,7 +115,9 @@ td_target = rewards + self.gamma * self.critic(next_states) * (1 - dones)
 td_delta = td_target - self.critic(states)  # 时序差分误差
 ```
 
-在强化学习中，时序差分（Temporal Difference, TD）方法是一种重要的技术，用于估计价值函数。这两行代码与 Actor-Critic 算法有关，这是一个结合了策略梯度和价值函数逼近的强化学习方法。让我们逐行分析这些代码的含义：
+在强化学习中，时序差分（Temporal Difference, TD）方法是一种重要的技术，用于估计价值函数。这两行代码与 Actor-Critic 算法有关，这是一个结合了策略梯度和价值函数逼近的强化学习方法。
+
+让我们逐行分析这些代码的含义：
 
 ### 1. 时序差分目标 (`td_target`)
 

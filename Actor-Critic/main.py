@@ -51,6 +51,7 @@ class ActorCritic:
         dones = torch.tensor(transition_dict['dones']).view(-1, 1).to(device=self.device)
 
         # 需要学习的
+        # critic 就只是value function
         td_target = rewards + self.gamma * self.critic(next_states) * (1 - dones)
 
         # 优势函数
