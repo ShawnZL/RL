@@ -2,6 +2,8 @@
 
 [abstract](https://digirl-agent.github.io/)
 
+[Code](https://github.com/DigiRL-agent/digirl)
+
 利用offline + online 强化学习训练AutoUI(一个模型)比 gpt-4v与gemini 1.5Pro效果好
 
 offline 利用离线数据集训练，提取有用的数据（SFT）
