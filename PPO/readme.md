@@ -126,3 +126,43 @@
 - **减少方差**: 多次更新可以帮助减少策略梯度方法中通常存在的高方差问题。
 
 总之，这种训练方式利用了PPO的核心思想，通过限制策略更新的幅度，同时在同一批样本上进行多次更新，以提高策略的性能和训练的稳定性。
+
+
+
+# 代码学习
+
+## 分类
+
+```
+action_dist = torch.distributions.Categorical(probs)
+action = action_dist.sample()
+```
+
+这段代码使用 PyTorch 的 `torch.distributions` 模块创建一个**分类分布（Categorical Distribution）**，并从该分布中采样一个动作。以下是逐行解析：
+
+### **1. `action_dist = torch.distributions.Categorical(probs)`**
+- **作用**：创建一个分类概率分布对象 `action_dist`。
+- **参数 `probs`**：  
+  - 是一个张量（Tensor），表示每个类别的概率（需满足 `probs.sum() = 1`）。  
+  - 例如：`probs = [0.2, 0.3, 0.5]` 表示 3 个类别的概率分别为 20%、30%、50%。
+- **关键点**：  
+  - 如果 `probs` 未归一化（和不为 1），PyTorch 会自动对其进行归一化。  
+  - 也可以使用 `logits`（未归一化的 log 概率）替代 `probs`。
+
+### **2. `action = action_dist.sample()`**
+- **作用**：从分类分布中**随机采样一个动作**（类别索引）。
+- **返回值 `action`**：  
+  - 是一个标量（Scalar）或张量，表示采样到的类别索引（从 0 开始）。  
+  - 例如：若 `probs = [0.2, 0.3, 0.5]`，采样结果可能是 `2`（对应概率 50%）。
+- **采样原理**：  
+  - 根据 `probs` 的概率权重进行随机采样（概率高的类别更可能被选中）。
+
+## 反向传播
+
+```
+self.actor_optimizer.zero_grad()
+actor_loss.backward()
+self.actor_optimizer.step()
+```
+
+**首先清空梯度，然后再反向传播，之后再通过step更新参数**
