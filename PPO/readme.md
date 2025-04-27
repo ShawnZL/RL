@@ -1,5 +1,7 @@
 # PPO算法解析
 
+这里使用的clip形式，还有一个ppo-惩罚形式，利用的是KL散度参与计算
+
 在 PPO（Proximal Policy Optimization）算法中，`rt` 通常指的是策略概率比率（ratio）。PPO 是一种强化学习算法，旨在优化策略，使得智能体在环境中能够通过最大化累积奖励来学习最优行为策略。
 
 在 PPO 中，`rt` 是当前策略与旧策略在给定状态下选择相同行动的概率比。这是如何计算的：
@@ -166,3 +168,148 @@ self.actor_optimizer.step()
 ```
 
 **首先清空梯度，然后再反向传播，之后再通过step更新参数**
+
+
+
+# Clip-higher
+
+在我们使用朴素 PPO或 GRPO的初始实验中，我们观察到随着训练的进行，策略的熵迅速降低（下图）。某些组的采样响应往往几乎相同。这表明有限的探索和过早的确定性策略，可能会阻碍扩展过程。
+
+我们提出了更高裁剪（Clip-Higher）策略来解决这个问题。对重要性采样比率的裁剪是在裁剪近端策略优化（PPO-Clip）中引入的，目的是限制信任区域并增强 RL 的稳定性。我们发现上裁剪可以限制策略的探索。在这种情况下，使"利用型 token"更有可能比提升"探索型 token"的概率要容易得多。
+
+具体来说，当 $\epsilon = 0.2$（大多数算法的默认值）时，考虑两个动作，其概率分别为 $\pi_{\text{data}}(o_i | q) = 0.01$ 和 $0.9$。更新后的最大可能概率分别为 $\pi(o_i | q) = 0.012$ 和 $1.08$。这意味着对于概率较高的 token（如 $0.9$），受到的约束较少。相反，对于低概率 token，要实现概率的显著增加要困难得多。经验上，我们还观察到裁剪 token 的最大概率约为 $\pi(o_i | q) < 0.2$（图 3a）。这一发现支持了我们的分析，即上裁剪阈值确实限制了低概率 token 的概率，从而可能限制了系统的多样性。
+
+clip = [1−*ϵ*,1+*ϵ*]=[0.8,1.2]，r = 0.012/0.01 = 1.2     r = 1.08/0.9 = 1.2 由于*r*=1.2 未超过上限，更新未被裁剪，策略可以正常优化。也就是说，对于0.01 概率，不被clip最大的变化范围为[0.008, 0.012]，对于概率0.9 不clip的最大变化范围为[0.72, 1.08]，也就解释了**上裁剪阈值确实限制了低概率 token 的概率**
+
+
+
+# Token-Level Policy Gradient Loss
+
+- 不是对所有样本直接平均，而是**对每个group \(i\) 内的所有token \(t\)**，先累加，再对所有group累加，最后用所有token总数归一化。
+
+### 当前代码的平均方式
+你的代码（见下）默认是全batch直接 `.mean()`，
+
+### 1. 定义分组信息
+- 你需要知道每个样本属于哪个group，每个group有多少个token（时间步）。
+- 假设 transition_dict 里有 `'group_ids'` 和 `'group_lens'`，分别记录每个transition的group编号和每组长度。
+
+### 2. 按group分组，做归一化
+- 对每个group \(i\)，把属于该group的所有token的loss加起来。
+- 累加所有group的loss，除以所有token数（即红色公式分母）。
+
+---
+
+## 示例代码（假设group_ids可用）
+
+```python
+def update(self, transition_dict):
+    states = torch.tensor(transition_dict['states'], dtype=torch.float).to(self.device)
+    actions = torch.tensor(transition_dict['actions']).view(-1, 1).to(self.device)
+    rewards = torch.tensor(transition_dict['rewards'], dtype=torch.float).view(-1, 1).to(self.device)
+    next_states = torch.tensor(transition_dict['next_states'], dtype=torch.float).to(self.device)
+    dones = torch.tensor(transition_dict['dones'], dtype=torch.float).view(-1, 1).to(self.device)
+    group_ids = torch.tensor(transition_dict['group_ids']).to(self.device)  # 带有group编号
+
+    td_target = rewards + self.gamma * self.critic(next_states) * (1 - dones)
+    td_error = td_target - self.critic(states)
+    advantage = rl_utils.compute_advantage(self.gamma, self.lmbda, td_error.cpu()).to(self.device)
+    old_log_probs = torch.log(self.actor(states).gather(1, actions)).detach()
+
+    for _ in range(self.epochs):
+        log_probs = self.actor(states).gather(1, actions)
+        ratio = torch.exp(log_probs - old_log_probs)
+        surr1 = ratio * advantage
+        surr2 = torch.clamp(ratio, 1.0 - self.eps_low, 1.0 + self.eps_high) * advantage
+
+        # 先计算每个step的loss
+        single_losses = -torch.min(surr1, surr2).squeeze(-1)
+
+        # 分组加和
+        group_losses = []
+        total_token_count = 0
+        unique_group_ids = torch.unique(group_ids)
+        for gid in unique_group_ids:
+            mask = (group_ids == gid)
+            group_loss = single_losses[mask].sum()
+            group_count = mask.sum().item()
+            group_losses.append(group_loss)
+            total_token_count += group_count
+
+        actor_loss = torch.stack(group_losses).sum() / total_token_count
+
+        critic_loss = torch.mean(F.mse_loss(self.critic(states), td_target.detach()))
+
+        self.actor_optimizer.zero_grad()
+        self.critic_optimizer.zero_grad()
+        actor_loss.backward()
+        critic_loss.backward()
+        self.actor_optimizer.step()
+        self.critic_optimizer.step()
+```
+
+---
+
+## 说明
+
+- `group_ids`：每个transition的group编号（长度和states一样）。比如一条完整对话/序列的所有token都用同一个group编号。
+- `single_losses`：每个token的loss。
+- `group_losses`：每组的loss累加。
+- `total_token_count`：所有token总数（即红色公式分母）。
+- 最终`actor_loss`就是红色公式分组归一化后的结果。
+
+### 代码片段
+
+```python
+# 分组加和
+group_losses = []
+total_token_count = 0
+unique_group_ids = torch.unique(group_ids)
+for gid in unique_group_ids:
+    mask = (group_ids == gid)
+    group_loss = single_losses[mask].sum()
+    group_count = mask.sum().item()
+    group_losses.append(group_loss)
+    total_token_count += group_count
+```
+
+---
+
+### 具体解释
+
+#### 1. `group_losses = []`
+- 作用：初始化一个空列表，用于存储每个group（分组）的loss总和。
+
+#### 2. `total_token_count = 0`
+- 作用：初始化token计数器，用来统计所有group中token的总数量，后续用于归一化。
+
+#### 3. `unique_group_ids = torch.unique(group_ids)`
+- 作用：提取所有**不重复的group编号**。每个group_id代表一组数据（比如一次对话、一条轨迹等）。
+
+#### 4. `for gid in unique_group_ids:`
+- 作用：遍历每一个唯一的group编号，对每个group分别处理。
+
+#### 5. `mask = (group_ids == gid)`
+- 作用：生成一个**布尔mask**，标记哪些数据属于当前group。
+    - 例如：group_ids是[0,0,1,1,2]，gid=1时，mask是[False,False,True,True,False]。
+
+#### 6. `group_loss = single_losses[mask].sum()`
+- 作用：**取出当前group的所有loss（single_losses）并累加**，得到该group的总损失。
+
+#### 7. `group_count = mask.sum().item()`
+- 作用：统计当前group中的token数量（True的个数）。
+
+#### 8. `group_losses.append(group_loss)`
+- 作用：把当前group的loss和加入到group_losses列表中。
+
+#### 9. `total_token_count += group_count`
+- 作用：将当前group的token数量累计到总token数上。
+
+---
+
+## 总结作用
+
+这段代码的作用是**按group（分组）统计loss总和和token总数**，为后续实现“红色公式”中的分组归一化做准备。  
+- `group_losses` 记录每个分组的loss和
+- `total_token_count` 记录所有token的总数  
+最终可用 `torch.stack(group_losses).sum() / total_token_count` 算出分组加权平均loss。
